@@ -1,0 +1,26 @@
+{
+	"schemaVersion": 1,
+	"id": "aorta",
+	"version": "${version}",
+	"name": "Aorta",
+	"description": "Your body, in your ears: a physiological heartbeat and breath that follow what your player is actually going through.",
+	"authors": [
+		"lume"
+	],
+	"license": "MIT OR Apache-2.0",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"dev.lume.aorta.Aorta"
+		],
+		"client": [
+			"dev.lume.aorta.client.AortaClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

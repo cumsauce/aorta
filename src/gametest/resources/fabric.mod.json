@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "aorta-gametest",
+	"version": "0.0.0",
+	"name": "Aorta game tests",
+	"environment": "client",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"dev.lume.aorta.gametest.AortaClientGameTest"
+		]
+	},
+	"depends": {
+		"aorta": "*"
+	}
+}

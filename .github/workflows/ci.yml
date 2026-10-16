@@ -1,0 +1,118 @@
+name: CI
+
+# Aorta is a client-side audio mod, so its CI is the suite's shape: one job
+# builds the jar and checks its contents, and a version tag publishes the
+# release. The mod's whole payload is four synthesized OGG assets plus the code
+# that schedules them, and a missing or misnamed asset is silent in game rather
+# than a build error -- so the jar check greps for every one of them here.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      gametest:
+        description: Run the client game test (slow, software renderer)
+        type: boolean
+        default: false
+
+# Actions from outside GitHub's own `actions/` are pinned to a commit, since a
+# tag can be moved to other code; the comment names the release it was.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - run: ./gradlew build
+      # The jar must carry the mod metadata, both environment source sets, the
+      # sound event table and all four synthesized assets. Minecraft loads a
+      # sound by name at runtime, so a missing ogg is a silent no-op in game, not
+      # a build error; it is checked here instead.
+      - name: Check the jar
+        run: |
+          jar=$(ls build/libs/aorta-*.jar | grep -v sources)
+          unzip -l "$jar" | tee contents
+          entries="fabric.mod.json
+            assets/aorta/sounds.json assets/aorta/lang/en_us.json
+            assets/aorta/sounds/lub.ogg assets/aorta/sounds/dub.ogg
+            assets/aorta/sounds/breath_in.ogg assets/aorta/sounds/breath_out.ogg
+            dev/lume/aorta/Aorta.class
+            dev/lume/aorta/body/BodyInputs.class dev/lume/aorta/body/BodyModel.class
+            dev/lume/aorta/body/HeartbeatClock.class dev/lume/aorta/body/BreathClock.class
+            dev/lume/aorta/config/AortaConfig.class
+            dev/lume/aorta/client/AortaClient.class dev/lume/aorta/client/BodyDriver.class
+            dev/lume/aorta/client/PulseSound.class dev/lume/aorta/client/command/AortaCommand.class"
+          for entry in $entries; do
+            grep -q " $entry\$" contents || { echo "$jar has no $entry" >&2; exit 1; }
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: aorta-mod
+          path: build/libs/aorta-*.jar
+
+  # The client game test loads the real client and checks that the sound events
+  # are registered, the model settles on a sane resting state, the driver is
+  # wired, and a simulated beat plays. It needs a GPU context, which on a runner
+  # means Xvfb and Mesa's software Vulkan (lavapipe), as in gore and earshot.
+  # Only a manual run with "Run the client game test" ticked does it.
+  gametest:
+    if: inputs.gametest
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - name: Client gametest
+        run: ./gradlew runClientGameTest -Paorta.runDir="$RUNNER_TEMP/aorta-run"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gametest-screenshots
+          path: |
+            ${{ runner.temp }}/aorta-run/clientGameTest/screenshots/
+            ${{ runner.temp }}/aorta-run/clientGameTest/logs/
+
+  # On a version tag: a GitHub prerelease with the jar.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: aorta-mod
+          path: dist
+      - name: GitHub release
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          test -f "dist/aorta-$version.jar" || { echo "tag $GITHUB_REF_NAME, but built $(ls dist)" >&2; exit 1; }
+          flags=(--generate-notes)
+          if [[ $version == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" "${flags[@]}" "dist/aorta-$version.jar"

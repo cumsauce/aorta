@@ -1,0 +1,94 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+base {
+	archivesName = 'aorta'
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"aorta" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+
+	// Run dirs must live on a filesystem that supports F_FULLFSYNC (Minecraft's
+	// world session lock needs FileChannel.force); a VirtioFS share behind the
+	// project directory does not, which is what a VM building in a folder shared
+	// from its host has. Keep the game data on the local disk, and let
+	// `-Paorta.runDir=<dir>` move it somewhere else (CI uses that).
+	def runDirOverride = providers.gradleProperty('aorta.runDir')
+
+	def localRunDir = { String runName ->
+		if (runDirOverride.isPresent()) {
+			return "${runDirOverride.get()}/${runName}"
+		}
+		return "${System.getProperty('user.home')}/aorta-run/${runName}"
+	}
+
+	runs {
+		configureEach {
+			runDir = localRunDir(name)
+		}
+	}
+
+	// Loom's client game-test configuration hardcodes its run dir to
+	// `build/run/clientGameTest`, *after* the `runs` block above, so it has to be
+	// moved here or the game test creates its world on the shared volume and dies
+	// on the save lock.
+	afterEvaluate {
+		runs.configureEach {
+			runDir = localRunDir(name)
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	testImplementation platform("org.junit:junit-bom:5.13.4")
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+fabricApi {
+	configureTests {
+		createSourceSet = true
+		modId = "aorta-gametest"
+		// The mod is a personal, client-side audio layer; there is nothing
+		// server-testable, so only the client game test runs.
+		enableGameTests = false
+		enableClientGameTests = true
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+
+	withSourcesJar()
+}
+
+test {
+	useJUnitPlatform()
+}

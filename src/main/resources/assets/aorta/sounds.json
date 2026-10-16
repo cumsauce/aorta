@@ -1,0 +1,22 @@
+{
+	"lub": {
+		"sounds": [
+			{ "name": "aorta:lub", "stream": false }
+		]
+	},
+	"dub": {
+		"sounds": [
+			{ "name": "aorta:dub", "stream": false }
+		]
+	},
+	"breath_in": {
+		"sounds": [
+			{ "name": "aorta:breath_in", "stream": false }
+		]
+	},
+	"breath_out": {
+		"sounds": [
+			{ "name": "aorta:breath_out", "stream": false }
+		]
+	}
+}
