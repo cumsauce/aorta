@@ -40,8 +40,8 @@ public class AortaClientGameTest implements FabricClientGameTest {
 			double hr = context.computeOnClient(mc -> BodyModel.heartRate(BodyInputs.resting()));
 			double br = context.computeOnClient(mc -> BodyModel.breathRate(BodyInputs.resting()));
 			LOGGER.info("[aorta-gametest] resting model: HR={} BR={}", hr, br);
-			check(hr >= 60.0 && hr <= 80.0, "resting heart rate out of range: " + hr);
-			check(br >= 8.0 && br <= 20.0, "resting breath rate out of range: " + br);
+			check(hr >= 52.0 && hr <= 64.0, "resting heart rate out of range: " + hr);
+			check(br >= 10.0 && br <= 16.0, "resting breath rate out of range: " + br);
 
 			// The client entrypoint must have wired the driver.
 			boolean wired = context.computeOnClient(mc -> AortaClient.driver() != null);

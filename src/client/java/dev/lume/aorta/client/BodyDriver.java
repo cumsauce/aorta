@@ -5,6 +5,7 @@ import dev.lume.aorta.body.BodyInputs;
 import dev.lume.aorta.body.BodyModel;
 import dev.lume.aorta.body.BreathClock;
 import dev.lume.aorta.body.HeartbeatClock;
+import dev.lume.aorta.body.RateSmoother;
 import dev.lume.aorta.config.AortaConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -24,8 +25,17 @@ public final class BodyDriver {
 
 	private static final double THREAT_RADIUS = 24.0;
 
+	// Per-tick easing. Rising is quick, falling is slow: the heart recovers from
+	// exertion far more gradually than it ramps into it.
+	private static final double HR_ATTACK = 0.040;
+	private static final double HR_RELEASE = 0.012;
+	private static final double BR_ATTACK = 0.070;
+	private static final double BR_RELEASE = 0.022;
+
 	private final HeartbeatClock heartbeat = new HeartbeatClock();
 	private final BreathClock breath = new BreathClock();
+	private final RateSmoother heartRate = new RateSmoother(BodyModel.RESTING_HR, HR_ATTACK, HR_RELEASE);
+	private final RateSmoother breathRate = new RateSmoother(BodyModel.RESTING_BR, BR_ATTACK, BR_RELEASE);
 
 	private Minecraft mc;
 	private long tick;
@@ -58,12 +68,10 @@ public final class BodyDriver {
 
 		BodyInputs in = sample(player);
 
-		double heartRate = BodyModel.heartRate(in);
-		double breathRate = BodyModel.breathRate(in);
-		lastHeartRate = heartRate;
-		lastBreathRate = breathRate;
+		double hr = heartRate.update(BodyModel.heartRate(in));
+		lastHeartRate = hr;
 
-		HeartbeatClock.Beat beat = heartbeat.tick(tick, heartRate);
+		HeartbeatClock.Beat beat = heartbeat.tick(tick, hr);
 		if (beat != null) {
 			SoundEvent event = beat == HeartbeatClock.Beat.LUB ? Aorta.LUB : Aorta.DUB;
 			double force = BodyModel.heartForce(in);
@@ -72,10 +80,20 @@ public final class BodyDriver {
 			play(event, force, 0.90 + 0.18 * force);
 		}
 
-		BreathClock.Phase phase = breath.tick(tick, breathRate);
-		if (phase != null) {
-			SoundEvent event = phase == BreathClock.Phase.INHALE ? Aorta.BREATH_IN : Aorta.BREATH_OUT;
-			play(event, BodyModel.breathDepth(in), 1.0);
+		if (in.underWater()) {
+			// Hold your breath: no respiratory sound while submerged. Resetting the
+			// smoother means surfacing starts from silence and eases back in.
+			breathRate.reset(0.0);
+			lastBreathRate = 0.0;
+		} else {
+			double br = breathRate.update(BodyModel.breathRate(in));
+			lastBreathRate = br;
+
+			BreathClock.Phase phase = breath.tick(tick, br);
+			if (phase != null) {
+				SoundEvent event = phase == BreathClock.Phase.INHALE ? Aorta.BREATH_IN : Aorta.BREATH_OUT;
+				play(event, BodyModel.breathDepth(in), 1.0);
+			}
 		}
 	}
 
@@ -84,9 +102,9 @@ public final class BodyDriver {
 		if (mc == null) {
 			return;
 		}
-		double master = AortaConfig.get().volume();
-		mc.getSoundManager().play(new PulseSound(Aorta.LUB, 0.8 * master, 1.0));
-		mc.getSoundManager().play(new PulseSound(Aorta.DUB, 0.6 * master, 1.0));
+		double level = AortaConfig.get().volume() * 0.35;
+		mc.getSoundManager().play(new PulseSound(Aorta.LUB, level, 1.0));
+		mc.getSoundManager().play(new PulseSound(Aorta.DUB, level * 0.75, 1.0));
 	}
 
 	private BodyInputs sample(LocalPlayer player) {
@@ -130,6 +148,9 @@ public final class BodyDriver {
 	private void play(SoundEvent event, double strength, double pitch) {
 		SoundManager sounds = mc.getSoundManager();
 		double master = AortaConfig.get().volume();
-		sounds.play(new PulseSound(event, strength * master, pitch));
+		// Squared response: calm states fall away much faster than loud ones, so
+		// standing still is nearly silent while a sprint still carries.
+		double volume = master * strength * strength;
+		sounds.play(new PulseSound(event, volume, pitch));
 	}
 }

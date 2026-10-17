@@ -14,9 +14,11 @@ Synthesis model
   with a broadband onset transient.
 * `dub` (S2, the second heart sound) -- the semilunar valves close a little
   later, higher and shorter: a ~80 Hz damped sinusoid at ~75% the amplitude.
-* `breath_in` / `breath_out` -- turbulent air through the airway. White noise,
-  band-passed (in ~300-2500 Hz, out ~200-1800 Hz), with an asymmetric
-  envelope: inspiration is a slow swell, expiration a long decay.
+* `breath_in` / `breath_out` -- turbulent air through the airway. White noise
+  shaped with a wide band (up to ~8 kHz) and a gentle high shelf, because the
+  hiss and sibilance that make a breath read as a breath live in the top
+  octaves; a narrow 200-2500 Hz band sounds like a telephone. A slow random
+  flutter keeps it from sounding like a static sweep.
 
 All are mono, 16-bit, 44.1 kHz. The engine pitch-shifts them to match the
 instantaneous heart/respiratory rate at runtime.
@@ -30,7 +32,7 @@ import numpy as np
 SR = 44100
 
 
-def normalize(x, peak=0.92):
+def normalize(x, peak):
     m = np.max(np.abs(x))
     if m < 1e-9:
         return x
@@ -54,14 +56,44 @@ def onset_click(dur=0.008):
     return np.exp(-np.linspace(0, 6.0, n)) * rng.standard_normal(n)
 
 
-def bandpass_noise(dur, lo, hi, seed):
+def smooth_noise(n, cutoff, seed):
+    """Low-passed noise in [-1, 1], used for slow, organic amplitude flutter."""
+    rng = np.random.default_rng(seed)
+    x = rng.standard_normal(n)
+    a = np.exp(-2.0 * np.pi * cutoff / SR)
+    y = np.empty(n)
+    acc = 0.0
+    for i in range(n):
+        acc = a * acc + (1.0 - a) * x[i]
+        y[i] = acc
+    peak = np.max(np.abs(y))
+    return y / peak if peak > 1e-9 else y
+
+
+def shaped_breath(dur, lo, hi, seed, shelf=1.3):
+    """Broadband turbulent air: soft-edged band + a high shelf so it stays airy."""
     rng = np.random.default_rng(seed)
     n = int(dur * SR)
     x = rng.standard_normal(n)
     X = np.fft.rfft(x)
-    freqs = np.fft.rfftfreq(n, 1 / SR)
-    X[(freqs < lo) | (freqs > hi)] = 0.0
-    return np.fft.irfft(X, n=n)
+    f = np.fft.rfftfreq(n, 1.0 / SR)
+
+    # Soft band edges (raised over roughly an octave) rather than a hard brick
+    # wall, which rings and sounds synthetic.
+    low = np.clip((f - lo * 0.4) / (lo * 1.2 + 1e-9), 0.0, 1.0)
+    high = np.clip((hi * 1.4 - f) / (hi * 0.6 + 1e-9), 0.0, 1.0)
+    mask = low * high
+
+    # Lift the top octaves: the hiss and sibilance are what stop a breath from
+    # sounding muffled and lo-fi.
+    shelf_gain = 1.0 + shelf * np.clip((f - lo) / (hi - lo + 1e-9), 0.0, 1.0) ** 1.4
+
+    X *= mask * shelf_gain
+    y = np.fft.irfft(X, n=n)
+
+    # Slow random amplitude flutter: real breath is not a steady sweep.
+    y *= 1.0 + 0.12 * smooth_noise(n, 25.0, seed + 100)
+    return y
 
 
 def envelope_swell(dur, attack, release):
@@ -94,21 +126,21 @@ def heartbeat_lub():
     out = np.zeros_like(body)
     out[: len(click)] += click * 0.25
     out += body
-    return normalize(out)
+    return normalize(out, peak=0.75)
 
 
 def heartbeat_dub():
-    return normalize(damped_sine(0.22, 80.0, 0.045, amp=0.75))
+    return normalize(damped_sine(0.22, 80.0, 0.045, amp=0.75), peak=0.60)
 
 
 def breath_in():
-    noise = bandpass_noise(1.1, 300.0, 2500.0, seed=1)
-    return normalize(noise * envelope_swell(1.1, 0.35, 0.30), peak=0.45)
+    noise = shaped_breath(1.15, 250.0, 8000.0, seed=1)
+    return normalize(noise * envelope_swell(1.15, 0.32, 0.30), peak=0.40)
 
 
 def breath_out():
-    noise = bandpass_noise(1.4, 200.0, 1800.0, seed=2)
-    return normalize(noise * envelope_decay(1.4, 0.18), peak=0.45)
+    noise = shaped_breath(1.5, 180.0, 6500.0, seed=2)
+    return normalize(noise * envelope_decay(1.5, 0.14), peak=0.40)
 
 
 SOUNDS = {
@@ -128,14 +160,14 @@ def main():
     )
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
+    import soundfile as sf
+
     for name, make in SOUNDS.items():
         data = make()
-        pcm = (data * 32767.0).astype(np.int16)
+        pcm = (np.clip(data, -1.0, 1.0) * 32767.0).astype(np.int16)
         wav_path = os.path.join(args.out, name + ".wav")
         ogg_path = os.path.join(args.out, name + ".ogg")
         # The WAV is for inspection; the game loads the OGG.
-        import soundfile as sf
-
         sf.write(wav_path, pcm, SR, format="WAV", subtype="PCM_16")
         sf.write(ogg_path, pcm, SR, format="OGG", subtype="VORBIS")
         os.remove(wav_path)

@@ -6,14 +6,16 @@ package dev.lume.aorta.body;
  * <p>Every term is closed-form and deliberately simple -- each driver adds a
  * bounded contribution to a resting value, so the whole thing stays readable and
  * the tests can pin the numbers. There are no hidden states or time integrals
- * here; rhythm lives in {@link HeartbeatClock} and {@link BreathClock}.
+ * here; the easing that keeps the rhythm from lurching lives in
+ * {@link RateSmoother}, and the rhythm itself in {@link HeartbeatClock} and
+ * {@link BreathClock}.
  */
 public final class BodyModel {
 
-	/** Beats per minute at rest. */
-	public static final double RESTING_HR = 70.0;
+	/** Beats per minute at rest. Deliberately calm: 58 reads as settled, not idle. */
+	public static final double RESTING_HR = 58.0;
 	/** Breaths per minute at rest. */
-	public static final double RESTING_BR = 14.0;
+	public static final double RESTING_BR = 12.0;
 
 	private BodyModel() {
 	}
@@ -22,71 +24,70 @@ public final class BodyModel {
 	public static double heartRate(BodyInputs in) {
 		double hr = RESTING_HR;
 
-		// Low health stresses the heart: up to +60 bpm as health runs out.
-		hr += (1.0 - healthFraction(in)) * 60.0;
+		// Low health stresses the heart: up to +50 bpm as health runs out.
+		hr += (1.0 - healthFraction(in)) * 50.0;
 
 		// Hunger: starving weakens, mild hunger is slightly agitating.
 		if (in.foodLevel() <= 3) {
-			hr += 18.0;
+			hr += 16.0;
 		} else if (in.foodLevel() <= 9) {
-			hr += 6.0;
+			hr += 5.0;
 		}
 
 		// Exertion.
 		if (in.sprinting()) {
-			hr += 55.0;
+			hr += 50.0;
 		} else if (in.moving()) {
-			hr += 22.0;
+			hr += 18.0;
 		}
 
 		// Drowning: panic rises as the air runs out.
 		if (in.underWater()) {
-			hr += (1.0 - airFraction(in)) * 50.0;
+			hr += (1.0 - airFraction(in)) * 45.0;
 		}
 
 		// Nearby hostiles.
-		hr += in.threat() * 40.0;
+		hr += in.threat() * 34.0;
 
 		if (in.falling()) {
-			hr += 15.0;
+			hr += 12.0;
 		}
 
 		return hr;
 	}
 
-	/** Breathing rate in breaths per minute. */
+	/**
+	 * Breathing rate in breaths per minute. Zero while submerged: the body holds
+	 * its breath rather than breathing water. Surfacing resumes the rhythm.
+	 */
 	public static double breathRate(BodyInputs in) {
+		if (in.underWater()) {
+			return 0.0;
+		}
+
 		double br = RESTING_BR;
 
 		if (in.sprinting()) {
-			br += 22.0;
+			br += 20.0;
 		} else if (in.moving()) {
-			br += 8.0;
+			br += 7.0;
 		}
 
-		if (in.underWater()) {
-			br += (1.0 - airFraction(in)) * 18.0;
-		}
-
-		br += in.threat() * 12.0;
-		br += (1.0 - healthFraction(in)) * 10.0;
+		br += in.threat() * 10.0;
+		br += (1.0 - healthFraction(in)) * 8.0;
 
 		return br;
 	}
 
 	/** Breathing depth 0..1: how loud each breath is (chest volume vs shallow). */
 	public static double breathDepth(BodyInputs in) {
-		double depth = 0.45; // shallow and quiet at rest
+		// Quiet at rest; the model's job is to stay out of the way when calm.
+		double depth = 0.40;
 
 		if (in.sprinting()) {
 			depth = 1.0;
 		} else if (in.moving()) {
-			depth = 0.75;
-		}
-
-		if (in.underWater()) {
-			// Desperate, ragged breaths that never quite fill.
-			depth = 0.35 + (1.0 - airFraction(in)) * 0.4;
+			depth = 0.68;
 		}
 
 		return clamp(depth, 0.0, 1.0);
@@ -94,16 +95,16 @@ public final class BodyModel {
 
 	/** Heart force 0..1: how hard (and loud) each lub-dub is. */
 	public static double heartForce(BodyInputs in) {
-		double force = 0.55;
+		double force = 0.48;
 
 		if (in.sprinting()) {
 			force = 1.0;
 		} else if (in.moving()) {
-			force = 0.8;
+			force = 0.72;
 		}
 
-		force += in.threat() * 0.35;
-		force += (1.0 - healthFraction(in)) * 0.25;
+		force += in.threat() * 0.30;
+		force += (1.0 - healthFraction(in)) * 0.20;
 
 		return clamp(force, 0.0, 1.0);
 	}

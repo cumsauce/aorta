@@ -47,7 +47,7 @@ that samples the game and plays the sounds.
 ```json
 {
   "enabled": true,
-  "volume": 0.8
+  "volume": 0.4
 }
 ```
 

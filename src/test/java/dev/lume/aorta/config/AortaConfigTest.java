@@ -40,4 +40,20 @@ class AortaConfigTest {
 		assertEquals(AortaConfig.DEFAULT.enabled(), loaded.enabled());
 		assertEquals(AortaConfig.DEFAULT.volume(), loaded.volume(), 1e-9);
 	}
+
+	@Test
+	void migratedLegacyDefaultVolumeDownToTheNewLevel() throws Exception {
+		Path p = tmp.resolve("legacy.json");
+		Files.writeString(p, "{\"enabled\": true, \"volume\": 0.8}");
+		AortaConfig loaded = AortaConfig.load(p);
+		assertEquals(AortaConfig.DEFAULT.volume(), loaded.volume(), 1e-9);
+	}
+
+	@Test
+	void migratesAHalfwayLegacyVolumeProportionally() throws Exception {
+		Path p = tmp.resolve("half.json");
+		Files.writeString(p, "{\"enabled\": true, \"volume\": 0.4}");
+		AortaConfig loaded = AortaConfig.load(p);
+		assertEquals(AortaConfig.DEFAULT.volume() / 2.0, loaded.volume(), 1e-9);
+	}
 }

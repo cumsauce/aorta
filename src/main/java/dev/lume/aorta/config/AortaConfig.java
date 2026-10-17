@@ -24,7 +24,10 @@ import java.nio.file.StandardCopyOption;
  */
 public record AortaConfig(boolean enabled, double volume) {
 
-	public static final AortaConfig DEFAULT = new AortaConfig(true, 0.8);
+	public static final AortaConfig DEFAULT = new AortaConfig(true, 0.4);
+
+	/** Bumped when the meaning of a stored value changes; v2 rescaled volume down. */
+	private static final int CONFIG_VERSION = 2;
 
 	private static final Logger LOGGER = LoggerFactory.getLogger("aorta");
 
@@ -109,13 +112,23 @@ public record AortaConfig(boolean enabled, double volume) {
 	}
 
 	static AortaConfig fromJson(JsonObject json) {
+		int version = integer(json, "version", 1);
 		boolean enabled = flag(json, "enabled", DEFAULT.enabled());
-		double volume = clamp(num(json, "volume", DEFAULT.volume()), 0.0, 1.0);
-		return new AortaConfig(enabled, volume);
+		double volume;
+		if (version >= CONFIG_VERSION) {
+			volume = num(json, "volume", DEFAULT.volume());
+		} else {
+			// v1 shipped much louder, so a stored 0.8 was the old default. Rescale by
+			// the ratio of defaults so a hand-tuned level keeps its relative intent.
+			double old = num(json, "volume", 0.8);
+			volume = old * (DEFAULT.volume() / 0.8);
+		}
+		return new AortaConfig(enabled, clamp(volume, 0.0, 1.0));
 	}
 
 	String toJson() {
 		JsonObject json = new JsonObject();
+		json.addProperty("version", CONFIG_VERSION);
 		json.addProperty("enabled", enabled);
 		json.addProperty("volume", volume);
 		return new GsonBuilder().setPrettyPrinting().create().toJson(json);
@@ -129,6 +142,11 @@ public record AortaConfig(boolean enabled, double volume) {
 	private static boolean flag(JsonObject json, String key, boolean fallback) {
 		JsonElement e = json.get(key);
 		return e instanceof JsonPrimitive p && p.isBoolean() ? p.getAsBoolean() : fallback;
+	}
+
+	private static int integer(JsonObject json, String key, int fallback) {
+		JsonElement e = json.get(key);
+		return e instanceof JsonPrimitive p && p.isNumber() ? p.getAsInt() : fallback;
 	}
 
 	private static double clamp(double v, double lo, double hi) {
