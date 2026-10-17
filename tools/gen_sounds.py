@@ -16,16 +16,20 @@ Synthesis model
   ~47 Hz sub and a ~162 Hz edge, plus a brief, brighter closure tick.
 * `breath_in` / `breath_out` -- turbulent air through the airway.
 
-The breath follows measurements and the approach Foley uses for moving air:
-it is *several resonant bands*, not one low-passed noise. Quiet adult
-breathing is ~12-15/min on a ~5 s cycle (~2 s in, ~3 s out, I:E about 1:1.5);
-its sound pressure peaks at 63-250 Hz, is around -10 dB by 1 kHz and near the
-floor by 2-4 kHz, and normal breath sounds have a median around 355-367 Hz.
-So the asset is a chest/tracheal body near 170 Hz, a main airway resonance
-near 430 Hz, a nasal/formant band near 1 kHz and a trace of air near
-2.2 kHz -- with a slow, soft envelope and a few percent of turbulence wobble.
-The high shelf of the first attempt made it hiss like a gasp; the single
-low-pass of the second made it sound like wind. Resonances are the difference.
+The breath is the interesting one. Measurements say quiet adult breathing is
+~12-15/min on a ~5 s cycle (~2 s in, ~3 s out, I:E about 1:1.5); its sound
+pressure peaks at 63-250 Hz, is around -10 dB by 1 kHz and near the floor by
+2-4 kHz, and normal breath sounds have a median around 355-367 Hz.
+
+A single low-pass sounds like wind and a high shelf sounds like a gasp, so the
+breath is built the way Foley builds moving air: as a *filter*, not a colour.
+The air is brown-ish noise (turbulence, not white hiss) driven through a
+Kelly-Lochbaum digital waveguide tract -- 44 sections of 3.9 mm, scattering at
+area changes, reflections at the glottis and lips, and a nasal branch -- after
+Foley's `voice/tract.rs`. That gives real vocal-tract formants near 500-650 Hz.
+A low-mid body layer (chest ~170 Hz, airway ~430 Hz) is mixed underneath so the
+result keeps the low-frequency weight a chest recording has. The tract output
+is gently low-passed at 2 kHz so the top octave stays air, not hiss.
 
 All are mono, 16-bit, 44.1 kHz. The engine schedules the one-shots at the
 model's heart/breath rate; the assets themselves are static and deterministic.
@@ -38,12 +42,110 @@ import numpy as np
 
 SR = 44100
 
+# Kelly-Lochbaum tract constants, from Foley's voice/tract.rs.
+C = 343.0
+SECTION = C / (2.0 * SR)
+GLOTTIS = 0.75
+LIPS = -0.85
+NOSTRILS = -0.85
+FADE = 0.999
+
 
 def normalize(x, peak):
     m = np.max(np.abs(x))
     if m < 1e-9:
         return x
     return x * (peak / m)
+
+
+class Tract:
+    """A simplified Kelly-Lochbaum waveguide with a nasal branch.
+
+    Sections are half a sample of sound travel long. Pressure waves scatter at
+    every area change, reflect at the glottis (0.75) and lips/nostrils (-0.85),
+    and radiate from the lips and nose. A noise source injected near the
+    glottis is shaped by the tract's formants.
+    """
+
+    def __init__(self, length=0.17):
+        self.n = max(8, min(180, int(round(length / SECTION))))
+        n = self.n
+        d = np.empty(n)
+        for i in range(n):
+            x = i / n
+            d[i] = 0.6 if x < 7 / 44 else (1.1 if x < 12 / 44 else 1.5)
+        self.area = np.maximum(d * d, 1e-4)
+
+        self.m = max(4, int(round(n * 28 / 44)))
+        m = self.m
+        na = np.empty(m)
+        for i in range(m):
+            dd = 2.0 * i / m
+            dd = 0.4 + 1.6 * dd if dd < 1.0 else 0.5 + 1.5 * (2.0 - dd)
+            na[i] = min(dd, 1.9) ** 2
+        self.nose_area = na
+        self.velum_at = n - m + 1
+        self.nose_area[0] = 0.4  # velum fully open
+
+        self.right = np.zeros(n)
+        self.left = np.zeros(n)
+        self.out_right = np.zeros(n + 1)
+        self.out_left = np.zeros(n + 1)
+        self.nright = np.zeros(m)
+        self.nleft = np.zeros(m)
+        self.nout_right = np.zeros(m + 1)
+        self.nout_left = np.zeros(m + 1)
+
+    def step(self, glottis, noise_at, noise_amp):
+        n, m, v = self.n, self.m, self.velum_at
+
+        self.out_right[0] = self.left[0] * GLOTTIS + glottis
+        self.out_left[n] = self.right[n - 1] * LIPS
+
+        a1 = self.area[:-1]
+        a2 = self.area[1:]
+        p = 2.0 * (a1 * self.right[:-1] + a2 * self.left[1:]) / (a1 + a2)
+        self.out_right[1:n] = p - self.left[1:n]
+        self.out_left[1:n] = p - self.right[:-1]
+
+        # Three-way junction at the velum.
+        al, ar, an = self.area[v - 1], self.area[v], self.nose_area[0]
+        pv = (
+            2.0
+            * (al * self.right[v - 1] + ar * self.left[v] + an * self.nleft[0])
+            / (al + ar + an)
+        )
+        self.out_right[v] = pv - self.left[v]
+        self.out_left[v] = pv - self.right[v - 1]
+        self.nout_right[0] = pv - self.nleft[0]
+
+        if noise_amp:
+            i = min(max(noise_at, 0), n - 1)
+            self.out_right[i] += 0.5 * noise_amp
+            self.out_left[i] += 0.5 * noise_amp
+
+        self.right[:] = self.out_right[:n] * FADE
+        self.left[:] = self.out_left[1 : n + 1] * FADE
+
+        self.nout_left[m] = self.nright[m - 1] * NOSTRILS
+        na1 = self.nose_area[:-1]
+        na2 = self.nose_area[1:]
+        q = 2.0 * (na1 * self.nright[:-1] + na2 * self.nleft[1:]) / (na1 + na2)
+        self.nout_right[1:m] = q - self.nleft[1:m]
+        self.nout_left[1:m] = q - self.nright[:-1]
+        self.nright[:] = self.nout_right[:m] * FADE
+        self.nleft[:] = self.nout_left[1 : m + 1] * FADE
+
+        return (self.right[n - 1] * (1.0 + LIPS), self.nright[m - 1] * (1.0 + NOSTRILS))
+
+    def run(self, glottis, noise_at, noise_amp):
+        oral = 0.0
+        nasal = 0.0
+        for _ in range(2):
+            o, a = self.step(glottis, noise_at, noise_amp)
+            oral += o
+            nasal += a
+        return 0.5 * oral, 0.5 * nasal
 
 
 def smoothstep(x):
@@ -78,24 +180,45 @@ def band_noise(dur, lo, hi, seed, sigma=0.6):
     return np.fft.irfft(X, n=n)
 
 
+def brown_noise(n, seed):
+    """Turbulence-ish excitation: 1/f, not white. White drove the tract too bright."""
+    rng = np.random.default_rng(seed)
+    x = rng.standard_normal(n)
+    X = np.fft.rfft(x)
+    f = np.fft.rfftfreq(n, 1.0 / SR)
+    X /= np.maximum(f, 20.0)
+    y = np.fft.irfft(X, n=n)
+    return y / (np.max(np.abs(y)) + 1e-9)
+
+
+def lowpass(x, cutoff):
+    """One-pole low-pass, 6 dB/octave."""
+    a = np.exp(-2.0 * np.pi * cutoff / SR)
+    y = np.empty_like(x)
+    acc = 0.0
+    for i in range(len(x)):
+        acc = a * acc + (1.0 - a) * x[i]
+        y[i] = acc
+    return y
+
+
 def resonant_gain(f, layers):
-    """Sum of second-order band-pass magnitudes: the airway's resonances."""
+    """Sum of second-order band-pass magnitudes: the airway's low-mid body."""
     g = np.zeros_like(f)
     for centre, q, amp in layers:
         ratio = np.where(f > 0.0, f / centre, 0.0)
-        # r - 1/r is the detuning; 1/(1 + (Q r)^2) is a 0 dB-peak band-pass.
         r = np.where(f > 0.0, ratio - 1.0 / np.maximum(ratio, 1e-9), 0.0)
         g += amp / (1.0 + (q * r) ** 2)
     return g
 
 
-# Airway resonances for each phase. The inhale is a touch darker and more
-# nasal; the exhale is slightly more open and brighter.
+# Low-mid body layers mixed under the tract output. The tract supplies the
+# formants near 500-650 Hz; these supply the chest weight below them.
 BREATH_IN = [
-    (165.0, 0.85, 1.00),  # chest / tracheal body
-    (430.0, 1.35, 0.60),  # main airway
-    (1000.0, 1.80, 0.15),  # nasal / formant
-    (2200.0, 0.80, 0.045),  # air
+    (165.0, 0.85, 1.00),
+    (430.0, 1.35, 0.60),
+    (1000.0, 1.80, 0.15),
+    (2200.0, 0.80, 0.045),
 ]
 BREATH_OUT = [
     (180.0, 0.85, 1.00),
@@ -117,7 +240,7 @@ def breath_envelope(dur, attack, release):
 
 
 def shaped_breath(dur, layers, seed):
-    """Turbulent air shaped by the airway's resonances, not a single low-pass."""
+    """The low-mid body: noise through a few broad airway bands."""
     rng = np.random.default_rng(seed)
     n = int(dur * SR)
     x = rng.standard_normal(n)
@@ -129,9 +252,37 @@ def shaped_breath(dur, layers, seed):
     X *= g
     y = np.fft.irfft(X, n=n)
 
-    # A few percent of slow turbulence wobble: breath is never a steady sweep.
-    y *= 1.0 + 0.07 * smooth_noise(n, 3.0, seed + 7)
+    y *= 1.0 + 0.07 * smooth_noise(n, 3.0, seed + 7)  # slow turbulence
     return y
+
+
+def tract_breath(
+    dur, oral_gain, nasal_gain, weight, layers, seed, peak, attack, release
+):
+    """Noise through the tract, blended with the low-mid body and enveloped."""
+    n = int(dur * SR)
+    exc = brown_noise(n, seed)
+
+    tract = Tract(0.17)
+    at = max(1, int(tract.n * 0.05))
+    oral = np.empty(n)
+    nasal = np.empty(n)
+    for i in range(n):
+        o, a = tract.run(0.0, at, exc[i])
+        oral[i] = o
+        nasal[i] = a
+
+    voiced = oral_gain * oral + nasal_gain * nasal
+    voiced -= np.mean(voiced)
+    voiced /= np.max(np.abs(voiced)) + 1e-9
+    voiced = lowpass(voiced, 2000.0)  # keep the top octave as air, not hiss
+    voiced /= np.max(np.abs(voiced)) + 1e-9
+
+    body = shaped_breath(dur, layers, seed + 31)
+    body /= np.max(np.abs(body)) + 1e-9
+
+    y = (1.0 - weight) * body + weight * voiced
+    return normalize(y * breath_envelope(dur, attack, release), peak)
 
 
 def heartbeat_lub():
@@ -173,13 +324,33 @@ def heartbeat_dub():
 
 
 def breath_in():
-    noise = shaped_breath(2.0, BREATH_IN, seed=1)
-    return normalize(noise * breath_envelope(2.0, attack=0.35, release=0.75), peak=0.28)
+    # 2 s inhale; mostly nasal (oral gain low), matching a quiet in-breath.
+    return tract_breath(
+        2.0,
+        oral_gain=0.20,
+        nasal_gain=1.00,
+        weight=0.60,
+        layers=BREATH_IN,
+        seed=1,
+        peak=0.28,
+        attack=0.35,
+        release=0.75,
+    )
 
 
 def breath_out():
-    noise = shaped_breath(3.0, BREATH_OUT, seed=2)
-    return normalize(noise * breath_envelope(3.0, attack=0.40, release=1.20), peak=0.32)
+    # 3 s exhale; more oral, matching the longer, more open out-breath.
+    return tract_breath(
+        3.0,
+        oral_gain=0.75,
+        nasal_gain=0.50,
+        weight=0.55,
+        layers=BREATH_OUT,
+        seed=2,
+        peak=0.32,
+        attack=0.40,
+        release=1.20,
+    )
 
 
 SOUNDS = {
