@@ -73,11 +73,16 @@ persisted on close, so dragging does not rewrite the JSON on every pixel.
 - `lub` (S1): two damped sinusoids (50 Hz body + 28 Hz sub) plus an onset
   transient.
 - `dub` (S2): an 80 Hz damped sinusoid at 75% amplitude.
-- `breath_in` / `breath_out`: 2 s and 3 s of noise driven through four airway
-  resonances (chest ~170 Hz, main airway ~430 Hz, nasal formant ~1 kHz, air
-  ~2.2 kHz) rather than a single low-pass. Measured on the encoded files, the
-  energy-weighted median is 362 Hz in / 353 Hz out — the measured normal is
-  355–367 Hz — with ~92 % of the energy below 1 kHz.
+- `breath_in` / `breath_out`: 2 s and 3 s of brown-ish turbulence driven
+  through a Kelly–Lochbaum waveguide tract (44 sections, nasal branch), with
+  the tract length varied 0.19–0.21 m across variants so the formants sit
+  near 520–650 Hz. The encoded files measure ~96 % of energy below 1 kHz and
+  ~1 % above 2 kHz — warm air, not hiss.
+
+Each breath is baked as three variants and each heart sound as two, with
+different seeds, tract lengths and envelopes. `sounds.json` lists them
+together, so the engine picks one at random per play and repeats never sound
+identical.
 
 The engine varies rate via the clocks and volume/pitch from the model; the assets
 themselves are static and deterministic.

@@ -9,11 +9,10 @@ same script, same bytes.
 Synthesis model
 ---------------
 * `lub` (S1) -- the atrioventricular valves snap shut and the whole heart
-  jolts. Three damped modes (a ~52 Hz pressure wave, a ~29 Hz sub, a ~104 Hz
-  ring) plus a short band-limited noise transient at closure, softly saturated
-  so it reads as a body rather than a sine. Real S1 energy sits at 20-120 Hz.
-* `dub` (S2) -- the semilunar valves close higher and shorter: ~84 Hz with a
-  ~47 Hz sub and a ~162 Hz edge, plus a brief, brighter closure tick.
+  jolts. Three damped modes (~52/29/104 Hz) plus a short band-limited noise
+  transient at closure, softly saturated so it reads as a body, not a sine.
+* `dub` (S2) -- the semilunar valves close higher and shorter (~84/47/162 Hz),
+  plus a brief, brighter closure tick.
 * `breath_in` / `breath_out` -- turbulent air through the airway.
 
 The breath is the interesting one. Measurements say quiet adult breathing is
@@ -26,10 +25,15 @@ breath is built the way Foley builds moving air: as a *filter*, not a colour.
 The air is brown-ish noise (turbulence, not white hiss) driven through a
 Kelly-Lochbaum digital waveguide tract -- 44 sections of 3.9 mm, scattering at
 area changes, reflections at the glottis and lips, and a nasal branch -- after
-Foley's `voice/tract.rs`. That gives real vocal-tract formants near 500-650 Hz.
-A low-mid body layer (chest ~170 Hz, airway ~430 Hz) is mixed underneath so the
-result keeps the low-frequency weight a chest recording has. The tract output
-is gently low-passed at 2 kHz so the top octave stays air, not hiss.
+Foley's `voice/tract.rs`. That gives real vocal-tract formants, and the tract
+length sets where they sit. A low-mid body layer (chest ~170 Hz, airway
+~430 Hz) is mixed underneath so the result keeps the low-frequency weight a
+chest recording has. The tract output is gently low-passed at 2 kHz so the top
+octave stays air, not hiss.
+
+Each event is rendered several times with different seeds, tract lengths and
+envelopes, and `sounds.json` lists them together so the engine picks one at
+random per play: no two breaths are the same sample.
 
 All are mono, 16-bit, 44.1 kHz. The engine schedules the one-shots at the
 model's heart/breath rate; the assets themselves are static and deterministic.
@@ -67,7 +71,7 @@ class Tract:
     glottis is shaped by the tract's formants.
     """
 
-    def __init__(self, length=0.17):
+    def __init__(self, length=0.20):
         self.n = max(8, min(180, int(round(length / SECTION))))
         n = self.n
         d = np.empty(n)
@@ -257,13 +261,22 @@ def shaped_breath(dur, layers, seed):
 
 
 def tract_breath(
-    dur, oral_gain, nasal_gain, weight, layers, seed, peak, attack, release
+    dur,
+    oral_gain,
+    nasal_gain,
+    weight,
+    layers,
+    seed,
+    peak,
+    attack,
+    release,
+    tract_length,
 ):
     """Noise through the tract, blended with the low-mid body and enveloped."""
     n = int(dur * SR)
     exc = brown_noise(n, seed)
 
-    tract = Tract(0.17)
+    tract = Tract(tract_length)
     at = max(1, int(tract.n * 0.05))
     oral = np.empty(n)
     nasal = np.empty(n)
@@ -285,19 +298,19 @@ def tract_breath(
     return normalize(y * breath_envelope(dur, attack, release), peak)
 
 
-def heartbeat_lub():
+def heartbeat_lub(seed=11, detune=1.0):
     dur = 0.34
     t = np.linspace(0.0, dur, int(dur * SR), endpoint=False)
     body = (
-        0.95 * np.exp(-t / 0.060) * np.sin(2 * np.pi * 52.0 * t)
-        + 0.45 * np.exp(-t / 0.042) * np.sin(2 * np.pi * 29.0 * t)
-        + 0.22 * np.exp(-t / 0.026) * np.sin(2 * np.pi * 104.0 * t)
+        0.95 * np.exp(-t / 0.060) * np.sin(2 * np.pi * 52.0 * detune * t)
+        + 0.45 * np.exp(-t / 0.042) * np.sin(2 * np.pi * 29.0 * detune * t)
+        + 0.22 * np.exp(-t / 0.026) * np.sin(2 * np.pi * 104.0 * detune * t)
     )
 
     # Valve closure is broadband as well as low: a very short filtered noise
     # transient is what stops the sound reading as a pure sine.
     n = int(0.028 * SR)
-    tick = band_noise(0.028, 120.0, 850.0, seed=11)
+    tick = band_noise(0.028, 120.0, 850.0, seed=seed)
     tick *= np.exp(-np.linspace(0.0, 7.0, n))
     body[:n] += 0.30 * tick
 
@@ -305,17 +318,17 @@ def heartbeat_lub():
     return normalize(body, peak=0.72)
 
 
-def heartbeat_dub():
+def heartbeat_dub(seed=12, detune=1.0):
     dur = 0.26
     t = np.linspace(0.0, dur, int(dur * SR), endpoint=False)
     body = (
-        0.85 * np.exp(-t / 0.040) * np.sin(2 * np.pi * 84.0 * t)
-        + 0.35 * np.exp(-t / 0.030) * np.sin(2 * np.pi * 47.0 * t)
-        + 0.18 * np.exp(-t / 0.020) * np.sin(2 * np.pi * 162.0 * t)
+        0.85 * np.exp(-t / 0.040) * np.sin(2 * np.pi * 84.0 * detune * t)
+        + 0.35 * np.exp(-t / 0.030) * np.sin(2 * np.pi * 47.0 * detune * t)
+        + 0.18 * np.exp(-t / 0.020) * np.sin(2 * np.pi * 162.0 * detune * t)
     )
 
     n = int(0.020 * SR)
-    tick = band_noise(0.020, 220.0, 1500.0, seed=12)
+    tick = band_noise(0.020, 220.0, 1500.0, seed=seed)
     tick *= np.exp(-np.linspace(0.0, 7.0, n))
     body[:n] += 0.22 * tick
 
@@ -323,42 +336,72 @@ def heartbeat_dub():
     return normalize(body, peak=0.56)
 
 
-def breath_in():
+def breath_in(seed=1, tract_length=0.20, weight=0.55, attack=0.35, release=0.75):
     # 2 s inhale; mostly nasal (oral gain low), matching a quiet in-breath.
     return tract_breath(
         2.0,
         oral_gain=0.20,
         nasal_gain=1.00,
-        weight=0.60,
+        weight=weight,
         layers=BREATH_IN,
-        seed=1,
+        seed=seed,
         peak=0.28,
-        attack=0.35,
-        release=0.75,
+        attack=attack,
+        release=release,
+        tract_length=tract_length,
     )
 
 
-def breath_out():
+def breath_out(seed=2, tract_length=0.20, weight=0.55, attack=0.40, release=1.20):
     # 3 s exhale; more oral, matching the longer, more open out-breath.
     return tract_breath(
         3.0,
         oral_gain=0.75,
         nasal_gain=0.50,
-        weight=0.55,
+        weight=weight,
         layers=BREATH_OUT,
-        seed=2,
+        seed=seed,
         peak=0.32,
-        attack=0.40,
-        release=1.20,
+        attack=attack,
+        release=release,
+        tract_length=tract_length,
     )
 
 
-SOUNDS = {
-    "lub": heartbeat_lub,
-    "dub": heartbeat_dub,
-    "breath_in": breath_in,
-    "breath_out": breath_out,
-}
+def generate():
+    """Every event's variants, each rendered with its own seed and shape."""
+    return {
+        "lub": [
+            heartbeat_lub(seed=11, detune=0.985),
+            heartbeat_lub(seed=21, detune=1.015),
+        ],
+        "dub": [
+            heartbeat_dub(seed=12, detune=0.985),
+            heartbeat_dub(seed=22, detune=1.015),
+        ],
+        "breath_in": [
+            breath_in(
+                seed=1, tract_length=0.19, weight=0.53, attack=0.34, release=0.72
+            ),
+            breath_in(
+                seed=101, tract_length=0.20, weight=0.55, attack=0.35, release=0.75
+            ),
+            breath_in(
+                seed=201, tract_length=0.21, weight=0.57, attack=0.36, release=0.78
+            ),
+        ],
+        "breath_out": [
+            breath_out(
+                seed=2, tract_length=0.19, weight=0.53, attack=0.39, release=1.14
+            ),
+            breath_out(
+                seed=102, tract_length=0.20, weight=0.55, attack=0.40, release=1.20
+            ),
+            breath_out(
+                seed=202, tract_length=0.21, weight=0.57, attack=0.41, release=1.26
+            ),
+        ],
+    }
 
 
 def main():
@@ -372,16 +415,17 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     import soundfile as sf
 
-    for name, make in SOUNDS.items():
-        data = make()
-        pcm = (np.clip(data, -1.0, 1.0) * 32767.0).astype(np.int16)
-        wav_path = os.path.join(args.out, name + ".wav")
-        ogg_path = os.path.join(args.out, name + ".ogg")
-        # The WAV is for inspection; the game loads the OGG.
-        sf.write(wav_path, pcm, SR, format="WAV", subtype="PCM_16")
-        sf.write(ogg_path, pcm, SR, format="OGG", subtype="VORBIS")
-        os.remove(wav_path)
-        print(f"wrote {ogg_path} ({os.path.getsize(ogg_path)} bytes)")
+    for event, renders in generate().items():
+        for index, data in enumerate(renders, start=1):
+            name = f"{event}_{index}"
+            pcm = (np.clip(data, -1.0, 1.0) * 32767.0).astype(np.int16)
+            wav_path = os.path.join(args.out, name + ".wav")
+            ogg_path = os.path.join(args.out, name + ".ogg")
+            # The WAV is for inspection; the game loads the OGG.
+            sf.write(wav_path, pcm, SR, format="WAV", subtype="PCM_16")
+            sf.write(ogg_path, pcm, SR, format="OGG", subtype="VORBIS")
+            os.remove(wav_path)
+            print(f"wrote {ogg_path} ({os.path.getsize(ogg_path)} bytes)")
 
 
 if __name__ == "__main__":

@@ -40,6 +40,9 @@ The model, the clocks, and the config are all pure and unit-tested; the only pla
 Minecraft types appear is the thin [`BodyDriver`](src/client/java/dev/lume/aorta/client/BodyDriver.java)
 that samples the game and plays the sounds.
 
+Each breath and beat is baked as a few variants, and the engine picks one at
+random per play, so repeats never sound identical.
+
 ## Config
 
 `config/aorta.json` (written on first launch):

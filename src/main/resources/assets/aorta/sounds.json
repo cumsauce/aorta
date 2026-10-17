@@ -1,22 +1,28 @@
 {
 	"lub": {
 		"sounds": [
-			{ "name": "aorta:lub", "stream": false }
+			{ "name": "aorta:lub_1", "stream": false },
+			{ "name": "aorta:lub_2", "stream": false }
 		]
 	},
 	"dub": {
 		"sounds": [
-			{ "name": "aorta:dub", "stream": false }
+			{ "name": "aorta:dub_1", "stream": false },
+			{ "name": "aorta:dub_2", "stream": false }
 		]
 	},
 	"breath_in": {
 		"sounds": [
-			{ "name": "aorta:breath_in", "stream": false }
+			{ "name": "aorta:breath_in_1", "stream": false },
+			{ "name": "aorta:breath_in_2", "stream": false },
+			{ "name": "aorta:breath_in_3", "stream": false }
 		]
 	},
 	"breath_out": {
 		"sounds": [
-			{ "name": "aorta:breath_out", "stream": false }
+			{ "name": "aorta:breath_out_1", "stream": false },
+			{ "name": "aorta:breath_out_2", "stream": false },
+			{ "name": "aorta:breath_out_3", "stream": false }
 		]
 	}
 }

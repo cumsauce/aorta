@@ -48,14 +48,20 @@ jobs:
           unzip -l "$jar" | tee contents
           entries="fabric.mod.json
             assets/aorta/sounds.json assets/aorta/lang/en_us.json
-            assets/aorta/sounds/lub.ogg assets/aorta/sounds/dub.ogg
-            assets/aorta/sounds/breath_in.ogg assets/aorta/sounds/breath_out.ogg
+            assets/aorta/sounds/lub_1.ogg assets/aorta/sounds/lub_2.ogg
+            assets/aorta/sounds/dub_1.ogg assets/aorta/sounds/dub_2.ogg
+            assets/aorta/sounds/breath_in_1.ogg assets/aorta/sounds/breath_in_2.ogg
+            assets/aorta/sounds/breath_in_3.ogg
+            assets/aorta/sounds/breath_out_1.ogg assets/aorta/sounds/breath_out_2.ogg
+            assets/aorta/sounds/breath_out_3.ogg
             dev/lume/aorta/Aorta.class
             dev/lume/aorta/body/BodyInputs.class dev/lume/aorta/body/BodyModel.class
             dev/lume/aorta/body/HeartbeatClock.class dev/lume/aorta/body/BreathClock.class
+            dev/lume/aorta/body/RateSmoother.class
             dev/lume/aorta/config/AortaConfig.class
-            dev/lume/aorta/client/AortaClient.class dev/lume/aorta/client/BodyDriver.class
-            dev/lume/aorta/client/PulseSound.class dev/lume/aorta/client/command/AortaCommand.class"
+            dev/lume/aorta/client/AortaClient.class dev/lume/aorta/client/AortaScreen.class
+            dev/lume/aorta/client/BodyDriver.class dev/lume/aorta/client/PulseSound.class
+            dev/lume/aorta/client/command/AortaCommand.class"
           for entry in $entries; do
             grep -q " $entry\$" contents || { echo "$jar has no $entry" >&2; exit 1; }
           done
