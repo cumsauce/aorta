@@ -73,10 +73,11 @@ persisted on close, so dragging does not rewrite the JSON on every pixel.
 - `lub` (S1): two damped sinusoids (50 Hz body + 28 Hz sub) plus an onset
   transient.
 - `dub` (S2): an 80 Hz damped sinusoid at 75% amplitude.
-- `breath_in` / `breath_out`: 2 s and 3 s of noise with a smooth low-mid spectral
-  rolloff (knee ~400 Hz). Quiet breathing measures strongest at 63–250 Hz, about
-  −10 dB by 1 kHz and near the floor by 2–4 kHz, so this is deliberately not a
-  bright hiss.
+- `breath_in` / `breath_out`: 2 s and 3 s of noise driven through four airway
+  resonances (chest ~170 Hz, main airway ~430 Hz, nasal formant ~1 kHz, air
+  ~2.2 kHz) rather than a single low-pass. Measured on the encoded files, the
+  energy-weighted median is 362 Hz in / 353 Hz out — the measured normal is
+  355–367 Hz — with ~92 % of the energy below 1 kHz.
 
 The engine varies rate via the clocks and volume/pitch from the model; the assets
 themselves are static and deterministic.
