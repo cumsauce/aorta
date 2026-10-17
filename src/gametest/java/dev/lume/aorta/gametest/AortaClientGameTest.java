@@ -4,6 +4,7 @@ import dev.lume.aorta.Aorta;
 import dev.lume.aorta.body.BodyInputs;
 import dev.lume.aorta.body.BodyModel;
 import dev.lume.aorta.client.AortaClient;
+import dev.lume.aorta.client.AortaScreen;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
@@ -50,6 +51,13 @@ public class AortaClientGameTest implements FabricClientGameTest {
 			// Force a beat and let a few ticks elapse; this must not throw.
 			context.runOnClient(mc -> AortaClient.driver().simulate());
 			context.waitTicks(20);
+
+			// The settings screen must construct and render.
+			context.runOnClient(mc -> mc.setScreenAndShow(new AortaScreen(null)));
+			context.waitTicks(10);
+			context.takeScreenshot("aorta-settings");
+			context.runOnClient(mc -> mc.setScreenAndShow(null));
+			context.waitTicks(5);
 
 			context.takeScreenshot("aorta-smoke");
 		}

@@ -24,10 +24,10 @@ import java.nio.file.StandardCopyOption;
  */
 public record AortaConfig(boolean enabled, double volume) {
 
-	public static final AortaConfig DEFAULT = new AortaConfig(true, 0.4);
+	public static final AortaConfig DEFAULT = new AortaConfig(true, 0.2);
 
-	/** Bumped when the meaning of a stored value changes; v2 rescaled volume down. */
-	private static final int CONFIG_VERSION = 2;
+	/** Bumped when the meaning of a stored value changes; v2 and v3 halved volume. */
+	private static final int CONFIG_VERSION = 3;
 
 	private static final Logger LOGGER = LoggerFactory.getLogger("aorta");
 
@@ -64,6 +64,16 @@ public record AortaConfig(boolean enabled, double volume) {
 	public static void set(AortaConfig next) {
 		loaded = next;
 		next.save(file());
+	}
+
+	/** Replace the active config in memory without touching disk (live preview). */
+	public static void apply(AortaConfig next) {
+		loaded = next;
+	}
+
+	/** Persist the active config to the default path. */
+	public void save() {
+		save(file());
 	}
 
 	public AortaConfig withEnabled(boolean enabled) {
@@ -118,10 +128,12 @@ public record AortaConfig(boolean enabled, double volume) {
 		if (version >= CONFIG_VERSION) {
 			volume = num(json, "volume", DEFAULT.volume());
 		} else {
-			// v1 shipped much louder, so a stored 0.8 was the old default. Rescale by
-			// the ratio of defaults so a hand-tuned level keeps its relative intent.
-			double old = num(json, "volume", 0.8);
-			volume = old * (DEFAULT.volume() / 0.8);
+			// v1 defaulted to 0.8 and v2 to 0.4; each revision halved the level.
+			// Rescale by that version's default so a hand-tuned level keeps its
+			// relative intent instead of staying loud.
+			double oldDefault = version == 1 ? 0.8 : 0.4;
+			double old = num(json, "volume", oldDefault);
+			volume = old * (DEFAULT.volume() / oldDefault);
 		}
 		return new AortaConfig(enabled, clamp(volume, 0.0, 1.0));
 	}

@@ -56,4 +56,12 @@ class AortaConfigTest {
 		AortaConfig loaded = AortaConfig.load(p);
 		assertEquals(AortaConfig.DEFAULT.volume() / 2.0, loaded.volume(), 1e-9);
 	}
+
+	@Test
+	void migratesV2VolumeDownByHalf() throws Exception {
+		Path p = tmp.resolve("v2.json");
+		Files.writeString(p, "{\"version\": 2, \"enabled\": true, \"volume\": 0.4}");
+		AortaConfig loaded = AortaConfig.load(p);
+		assertEquals(AortaConfig.DEFAULT.volume(), loaded.volume(), 1e-9);
+	}
 }

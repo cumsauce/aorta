@@ -46,13 +46,21 @@ that samples the game and plays the sounds.
 
 ```json
 {
+  "version": 3,
   "enabled": true,
-  "volume": 0.4
+  "volume": 0.2
 }
 ```
 
+## Settings
+
+Press **F9** (rebindable under Controls → Miscellaneous) or run `/aorta menu` to
+open a small screen with a volume slider and a heartbeat on/off toggle. The slider
+previews live and is saved when the screen closes.
+
 ## Commands
 
+- `/aorta menu` — open the volume/on-off screen (also F9)
 - `/aorta status` — the live heart and breath rates
 - `/aorta simulate` — force a beat
 - `/aorta reload` — re-read the config

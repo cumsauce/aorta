@@ -58,6 +58,12 @@ quick rise and a slow fall, so the heart eases into exertion and takes its time
 coming back down. Underwater the breath rate is zero: the breath clock stops and
 the body holds its breath, resuming on surfacing.
 
+## Settings
+
+A small vanilla `Screen` (F9, or `/aorta menu`) holds the volume slider and the
+heartbeat on/off toggle. Volume previews live through an in-memory apply and is
+persisted on close, so dragging does not rewrite the JSON on every pixel.
+
 ## Audio
 
 `tools/gen_sounds.py` synthesizes four mono 44.1 kHz OGGs from physical models:
