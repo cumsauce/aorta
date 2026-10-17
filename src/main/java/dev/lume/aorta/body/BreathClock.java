@@ -4,9 +4,9 @@ package dev.lume.aorta.body;
  * Turns a breathing rate into a stream of inhale/exhale events. Pure and
  * deterministic, mirroring {@link HeartbeatClock}.
  *
- * <p>Each respiratory cycle is {@code 1200 / breathRate} ticks; the inhale takes
- * the first ~42% of the cycle and the exhale the rest, which matches the normal
- * longer-exhale rhythm.
+ * <p>Each respiratory cycle is {@code 1200 / breathRate} ticks. The inhale takes
+ * the first ~40% of the cycle (2 s of a 5 s rest cycle) and the exhale the rest,
+ * which matches the measured quiet rhythm of about 2 s in and 3 s out.
  */
 public final class BreathClock {
 
@@ -29,7 +29,7 @@ public final class BreathClock {
 		if (now >= nextInhaleTick) {
 			long whole = (long) cycle;
 			nextInhaleTick = now + whole;
-			nextExhaleTick = now + Math.max(10, (long) (whole * 0.42));
+			nextExhaleTick = now + Math.max(10, (long) (whole * 0.40));
 			return Phase.INHALE;
 		}
 

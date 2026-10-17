@@ -50,8 +50,10 @@ much faster than an exerted one.
 ## Rhythm and inertia
 
 Both clocks schedule on integer game ticks (20 tps). A heart beat is 1200/HR
-ticks; the S2 lands ~28% of the way through the cycle. A breath is 1200/BR ticks,
-inhale ~42% then exhale.
+ticks; the S2 lands ~28% of the way through the cycle. A breath is 1200/BR ticks:
+at rest (12/min) that is a 5 s cycle, and the inhale takes the first 40% (2 s)
+with the exhale taking the remaining 3 s — the measured quiet rhythm and an
+I:E of about 1:1.5.
 
 The model's instantaneous rates are fed through a first-order smoother with a
 quick rise and a slow fall, so the heart eases into exertion and takes its time
@@ -71,8 +73,10 @@ persisted on close, so dragging does not rewrite the JSON on every pixel.
 - `lub` (S1): two damped sinusoids (50 Hz body + 28 Hz sub) plus an onset
   transient.
 - `dub` (S2): an 80 Hz damped sinusoid at 75% amplitude.
-- `breath_in` / `breath_out`: wideband shaped noise (up to ~8 kHz) with a gentle
-  high shelf, so the hiss and sibilance survive; a narrow band sounds lo-fi.
+- `breath_in` / `breath_out`: 2 s and 3 s of noise with a smooth low-mid spectral
+  rolloff (knee ~400 Hz). Quiet breathing measures strongest at 63–250 Hz, about
+  −10 dB by 1 kHz and near the floor by 2–4 kHz, so this is deliberately not a
+  bright hiss.
 
 The engine varies rate via the clocks and volume/pitch from the model; the assets
 themselves are static and deterministic.

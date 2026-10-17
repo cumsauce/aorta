@@ -82,12 +82,12 @@ public final class BodyModel {
 	/** Breathing depth 0..1: how loud each breath is (chest volume vs shallow). */
 	public static double breathDepth(BodyInputs in) {
 		// Quiet at rest; the model's job is to stay out of the way when calm.
-		double depth = 0.40;
+		double depth = 0.35;
 
 		if (in.sprinting()) {
 			depth = 1.0;
 		} else if (in.moving()) {
-			depth = 0.68;
+			depth = 0.65;
 		}
 
 		return clamp(depth, 0.0, 1.0);

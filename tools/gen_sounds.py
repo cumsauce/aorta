@@ -14,14 +14,18 @@ Synthesis model
   with a broadband onset transient.
 * `dub` (S2, the second heart sound) -- the semilunar valves close a little
   later, higher and shorter: a ~80 Hz damped sinusoid at ~75% the amplitude.
-* `breath_in` / `breath_out` -- turbulent air through the airway. White noise
-  shaped with a wide band (up to ~8 kHz) and a gentle high shelf, because the
-  hiss and sibilance that make a breath read as a breath live in the top
-  octaves; a narrow 200-2500 Hz band sounds like a telephone. A slow random
-  flutter keeps it from sounding like a static sweep.
+* `breath_in` / `breath_out` -- turbulent air through the airway.
 
-All are mono, 16-bit, 44.1 kHz. The engine pitch-shifts them to match the
-instantaneous heart/respiratory rate at runtime.
+The breath is shaped from measurements rather than guessed. Quiet adult
+breathing is ~12-15 breaths/min on a ~5 s cycle (~2 s in, ~3 s out, I:E about
+1:1.5); its sound pressure peaks at 63-250 Hz, is already around -10 dB by
+1 kHz, and sits near the noise floor by 2-4 kHz; the median frequency of normal
+breath sounds is ~350-390 Hz, and the whole thing is only ~10 dB SPL. So the
+asset is low-mid dominated with a smooth -12 dB/oct rolloff above ~400 Hz and
+a slow, soft envelope -- not the bright, short hiss that reads as a gasp.
+
+All are mono, 16-bit, 44.1 kHz. The engine schedules the one-shots at the
+model's heart/breath rate; the assets themselves are static and deterministic.
 """
 
 import argparse
@@ -56,68 +60,40 @@ def onset_click(dur=0.008):
     return np.exp(-np.linspace(0, 6.0, n)) * rng.standard_normal(n)
 
 
-def smooth_noise(n, cutoff, seed):
-    """Low-passed noise in [-1, 1], used for slow, organic amplitude flutter."""
-    rng = np.random.default_rng(seed)
-    x = rng.standard_normal(n)
-    a = np.exp(-2.0 * np.pi * cutoff / SR)
-    y = np.empty(n)
-    acc = 0.0
-    for i in range(n):
-        acc = a * acc + (1.0 - a) * x[i]
-        y[i] = acc
-    peak = np.max(np.abs(y))
-    return y / peak if peak > 1e-9 else y
+def smoothstep(x):
+    x = np.clip(x, 0.0, 1.0)
+    return x * x * (3.0 - 2.0 * x)
 
 
-def shaped_breath(dur, lo, hi, seed, shelf=1.3):
-    """Broadband turbulent air: soft-edged band + a high shelf so it stays airy."""
+def breath_envelope(dur, attack, release):
+    """A soft, smooth swell: no click at the onset, no abrupt cut at the end."""
+    n = int(dur * SR)
+    e = np.ones(n)
+    a = max(1, int(attack * SR))
+    r = max(1, int(release * SR))
+    e[:a] = smoothstep(np.linspace(0.0, 1.0, a))
+    e[-r:] = smoothstep(np.linspace(1.0, 0.0, r))
+    return e
+
+
+def shaped_breath(dur, fc, seed):
+    """Quiet breath: low-mid dominant, smoothly rolled off above ~400 Hz.
+
+    A single -12 dB/oct low-pass with its knee near the measured median
+    frequency of normal breath sounds. No high shelf: boosting the top octaves
+    is what made the earlier asset sound like a gasp.
+    """
     rng = np.random.default_rng(seed)
     n = int(dur * SR)
     x = rng.standard_normal(n)
     X = np.fft.rfft(x)
     f = np.fft.rfftfreq(n, 1.0 / SR)
 
-    # Soft band edges (raised over roughly an octave) rather than a hard brick
-    # wall, which rings and sounds synthetic.
-    low = np.clip((f - lo * 0.4) / (lo * 1.2 + 1e-9), 0.0, 1.0)
-    high = np.clip((hi * 1.4 - f) / (hi * 0.6 + 1e-9), 0.0, 1.0)
-    mask = low * high
-
-    # Lift the top octaves: the hiss and sibilance are what stop a breath from
-    # sounding muffled and lo-fi.
-    shelf_gain = 1.0 + shelf * np.clip((f - lo) / (hi - lo + 1e-9), 0.0, 1.0) ** 1.4
-
-    X *= mask * shelf_gain
-    y = np.fft.irfft(X, n=n)
-
-    # Slow random amplitude flutter: real breath is not a steady sweep.
-    y *= 1.0 + 0.12 * smooth_noise(n, 25.0, seed + 100)
-    return y
-
-
-def envelope_swell(dur, attack, release):
-    """A smooth attack-sustain-release envelope (fractions of dur)."""
-    n = int(dur * SR)
-    na = int(n * attack)
-    nr = int(n * release)
-    e = np.ones(n)
-    if na > 0:
-        e[:na] = np.linspace(0.0, 1.0, na, endpoint=False)
-    if nr > 0:
-        e[-nr:] = np.linspace(1.0, 0.0, nr, endpoint=True)
-    return e
-
-
-def envelope_decay(dur, attack):
-    """Attack then a long exponential decay to zero."""
-    n = int(dur * SR)
-    na = int(n * attack)
-    t = np.arange(n) / SR
-    e = np.exp(-3.5 * np.maximum(0.0, t - attack))
-    if na > 0:
-        e[:na] *= np.linspace(0.0, 1.0, na, endpoint=False)
-    return e
+    # Drop sub-bass rumble, then the gentle rolloff.
+    low = 1.0 - np.exp(-((f / 70.0) ** 2))
+    rolloff = 1.0 / (1.0 + (f / fc) ** 2)
+    X *= low * rolloff
+    return np.fft.irfft(X, n=n)
 
 
 def heartbeat_lub():
@@ -134,13 +110,15 @@ def heartbeat_dub():
 
 
 def breath_in():
-    noise = shaped_breath(1.15, 250.0, 8000.0, seed=1)
-    return normalize(noise * envelope_swell(1.15, 0.32, 0.30), peak=0.40)
+    # 2 s inhale, matching the inspiratory phase of a ~5 s resting cycle.
+    noise = shaped_breath(2.0, 650.0, seed=1)
+    return normalize(noise * breath_envelope(2.0, attack=0.35, release=0.75), peak=0.28)
 
 
 def breath_out():
-    noise = shaped_breath(1.5, 180.0, 6500.0, seed=2)
-    return normalize(noise * envelope_decay(1.5, 0.14), peak=0.40)
+    # 3 s exhale, matching the longer expiratory phase.
+    noise = shaped_breath(3.0, 600.0, seed=2)
+    return normalize(noise * breath_envelope(3.0, attack=0.40, release=1.20), peak=0.32)
 
 
 SOUNDS = {
