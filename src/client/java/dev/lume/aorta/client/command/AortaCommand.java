@@ -39,7 +39,8 @@ public final class AortaCommand {
 		String hr = d == null ? "?" : Integer.toString((int) d.lastHeartRate());
 		String br = d == null ? "?" : Integer.toString((int) d.lastBreathRate());
 		src.sendFeedback(Component.literal("Aorta " + (c.enabled() ? "on" : "off")
-				+ " · volume " + Math.round(c.volume() * 100.0) + "%"
+				+ " · heart vol " + Math.round(c.heartbeatVolume() * 100.0) + "%"
+				+ " · breath vol " + Math.round(c.breathingVolume() * 100.0) + "%"
 				+ " · heart " + hr + " bpm · breath " + br + " /min"
 				+ " (rest " + (int) BodyModel.RESTING_HR + "/" + (int) BodyModel.RESTING_BR + ")"));
 		return 1;
@@ -60,7 +61,9 @@ public final class AortaCommand {
 		AortaConfig.reload();
 		AortaConfig c = AortaConfig.get();
 		src.sendFeedback(Component.literal("Aorta config reloaded: "
-				+ (c.enabled() ? "on" : "off") + ", volume " + Math.round(c.volume() * 100.0) + "%"));
+				+ (c.enabled() ? "on" : "off")
+		+ ", heart vol " + Math.round(c.heartbeatVolume() * 100.0) + "%"
+		+ ", breath vol " + Math.round(c.breathingVolume() * 100.0) + "%"));
 		return 1;
 	}
 }

@@ -102,7 +102,7 @@ public final class BodyDriver {
 		if (mc == null) {
 			return;
 		}
-		double level = AortaConfig.get().volume() * 0.35;
+		double level = AortaConfig.get().heartbeatVolume() * 0.35;
 		mc.getSoundManager().play(new PulseSound(Aorta.LUB, level, 1.0));
 		mc.getSoundManager().play(new PulseSound(Aorta.DUB, level * 0.75, 1.0));
 	}
@@ -147,7 +147,8 @@ public final class BodyDriver {
 
 	private void play(SoundEvent event, double strength, double pitch) {
 		SoundManager sounds = mc.getSoundManager();
-		double master = AortaConfig.get().volume();
+		boolean breath = event == Aorta.BREATH_IN || event == Aorta.BREATH_OUT;
+		double master = breath ? AortaConfig.get().breathingVolume() : AortaConfig.get().heartbeatVolume();
 		// Squared response: calm states fall away much faster than loud ones, so
 		// standing still is nearly silent while a sprint still carries.
 		double volume = master * strength * strength;

@@ -49,9 +49,10 @@ random per play, so repeats never sound identical.
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "enabled": true,
-  "volume": 0.2
+  "heartbeatVolume": 0.2,
+  "breathingVolume": 0.2
 }
 ```
 

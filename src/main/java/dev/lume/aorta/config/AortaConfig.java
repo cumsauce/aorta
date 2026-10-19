@@ -21,13 +21,16 @@ import java.nio.file.StandardCopyOption;
 /**
  * Aorta's settings, loaded from {@code config/aorta.json}. Mirrors the suite's
  * config style: a record with a {@code DEFAULT}, Gson-backed, atomically written.
+ *
+ * <p>Two independent volume levels are kept, one for the heartbeat (lub/dub)
+ * and one for breathing, so each can be balanced on its own.
  */
-public record AortaConfig(boolean enabled, double volume) {
+public record AortaConfig(boolean enabled, double heartbeatVolume, double breathingVolume) {
 
-	public static final AortaConfig DEFAULT = new AortaConfig(true, 0.2);
+	public static final AortaConfig DEFAULT = new AortaConfig(true, 0.2, 0.2);
 
-	/** Bumped when the meaning of a stored value changes; v2 and v3 halved volume. */
-	private static final int CONFIG_VERSION = 3;
+	/** Bumped when the meaning of a stored value changes; v2/v3 halved volume. */
+	private static final int CONFIG_VERSION = 4;
 
 	private static final Logger LOGGER = LoggerFactory.getLogger("aorta");
 
@@ -77,11 +80,52 @@ public record AortaConfig(boolean enabled, double volume) {
 	}
 
 	public AortaConfig withEnabled(boolean enabled) {
-		return new AortaConfig(enabled, volume);
+		return new AortaConfig(enabled, heartbeatVolume, breathingVolume);
 	}
 
+	/** Set both volume levels at once (kept for backwards compatibility). */
 	public AortaConfig withVolume(double volume) {
-		return new AortaConfig(enabled, clamp(volume, 0.0, 1.0));
+		double v = clamp(volume, 0.0, 1.0);
+		return new AortaConfig(enabled, v, v);
+	}
+
+	public AortaConfig withHeartbeatVolume(double volume) {
+		return new AortaConfig(enabled, clamp(volume, 0.0, 1.0), breathingVolume);
+	}
+
+	public AortaConfig withBreathingVolume(double volume) {
+		return new AortaConfig(enabled, heartbeatVolume, clamp(volume, 0.0, 1.0));
+	}
+
+	// Aliases for the shorter naming used elsewhere.
+	public AortaConfig withHeartVolume(double volume) {
+		return withHeartbeatVolume(volume);
+	}
+
+	public AortaConfig withBreathVolume(double volume) {
+		return withBreathingVolume(volume);
+	}
+
+	/** Overall volume: the heartbeat level, used as the legacy single value. */
+	public double volume() {
+		return heartbeatVolume;
+	}
+
+	public double heartVolume() {
+		return heartbeatVolume;
+	}
+
+	public double breathVolume() {
+		return breathingVolume;
+	}
+
+	// Backwards-compatible constructors.
+	public AortaConfig(boolean enabled, double volume) {
+		this(enabled, volume, volume);
+	}
+
+	public AortaConfig(boolean enabled, double volume, double heartbeatVolume, double breathingVolume) {
+		this(enabled, heartbeatVolume, breathingVolume);
 	}
 
 	/** Parse a config file, falling back to {@link #DEFAULT} on any problem. */
@@ -124,26 +168,71 @@ public record AortaConfig(boolean enabled, double volume) {
 	static AortaConfig fromJson(JsonObject json) {
 		int version = integer(json, "version", 1);
 		boolean enabled = flag(json, "enabled", DEFAULT.enabled());
-		double volume;
-		if (version >= CONFIG_VERSION) {
-			volume = num(json, "volume", DEFAULT.volume());
+
+		double heartbeatVolume;
+		double breathingVolume;
+
+		// New per-sound keys take precedence when present.
+		boolean hasHeart = hasAny(json, "heartbeatVolume", "heartVolume", "heartbeat_volume", "heart_volume");
+		boolean hasBreath = hasAny(json, "breathingVolume", "breathVolume", "breathing_volume", "breath_volume");
+
+		if (hasHeart || hasBreath) {
+			heartbeatVolume = hasHeart
+					? numAny(json, DEFAULT.heartbeatVolume(), "heartbeatVolume", "heartVolume", "heartbeat_volume", "heart_volume")
+					: DEFAULT.heartbeatVolume();
+			breathingVolume = hasBreath
+					? numAny(json, DEFAULT.breathingVolume(), "breathingVolume", "breathVolume", "breathing_volume", "breath_volume")
+					: DEFAULT.breathingVolume();
+			// If only one side was given, mirror the legacy single volume for the other.
+			if (!hasHeart && hasBreath) {
+				heartbeatVolume = num(json, "volume", DEFAULT.heartbeatVolume());
+			}
+			if (!hasBreath && hasHeart) {
+				breathingVolume = num(json, "volume", DEFAULT.breathingVolume());
+			}
+		} else if (version >= CONFIG_VERSION) {
+			heartbeatVolume = num(json, "heartbeatVolume", DEFAULT.heartbeatVolume());
+			breathingVolume = num(json, "breathingVolume", DEFAULT.breathingVolume());
 		} else {
-			// v1 defaulted to 0.8 and v2 to 0.4; each revision halved the level.
-			// Rescale by that version's default so a hand-tuned level keeps its
-			// relative intent instead of staying loud.
-			double oldDefault = version == 1 ? 0.8 : 0.4;
+			// Legacy single volume: rescale by that version's default so a hand-tuned
+			// level keeps its relative intent instead of staying loud.
+			double oldDefault = version == 1 ? 0.8 : version == 2 ? 0.4 : 0.2;
 			double old = num(json, "volume", oldDefault);
-			volume = old * (DEFAULT.volume() / oldDefault);
+			double migrated = old * (DEFAULT.heartbeatVolume() / oldDefault);
+			migrated = clamp(migrated, 0.0, 1.0);
+			heartbeatVolume = migrated;
+			breathingVolume = migrated;
 		}
-		return new AortaConfig(enabled, clamp(volume, 0.0, 1.0));
+
+		return new AortaConfig(enabled, clamp(heartbeatVolume, 0.0, 1.0), clamp(breathingVolume, 0.0, 1.0));
 	}
 
 	String toJson() {
 		JsonObject json = new JsonObject();
 		json.addProperty("version", CONFIG_VERSION);
 		json.addProperty("enabled", enabled);
-		json.addProperty("volume", volume);
+		json.addProperty("heartbeatVolume", heartbeatVolume);
+		json.addProperty("breathingVolume", breathingVolume);
 		return new GsonBuilder().setPrettyPrinting().create().toJson(json);
+	}
+
+	private static boolean hasAny(JsonObject json, String... keys) {
+		for (String k : keys) {
+			if (json.has(k)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static double numAny(JsonObject json, double fallback, String... keys) {
+		for (String k : keys) {
+			JsonElement e = json.get(k);
+			if (e instanceof JsonPrimitive p && p.isNumber()) {
+				return p.getAsDouble();
+			}
+		}
+		return fallback;
 	}
 
 	private static double num(JsonObject json, String key, double fallback) {

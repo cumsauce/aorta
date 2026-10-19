@@ -8,9 +8,10 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 /**
- * A bare-bones settings screen: a volume slider and a heartbeat on/off toggle.
- * Volume is previewed live (the driver reads the config every tick) and persisted
- * when the screen closes, so dragging does not rewrite the JSON on every pixel.
+ * A bare-bones settings screen: volume sliders for the heartbeat and breathing,
+ * plus a heartbeat on/off toggle. Volumes are previewed live (the driver reads
+ * the config every tick) and persisted when the screen closes, so dragging does
+ * not rewrite the JSON on every pixel.
  */
 public final class AortaScreen extends Screen {
 
@@ -29,11 +30,12 @@ public final class AortaScreen extends Screen {
 
 		int titleWidth = this.font.width(this.title);
 		addRenderableWidget(new StringWidget(this.width / 2 - titleWidth / 2, 40, titleWidth, 20, this.title, this.font));
-		addRenderableWidget(new VolumeSlider(x, 72, COLUMN_WIDTH, 20, AortaConfig.get().volume()));
+		addRenderableWidget(new HeartbeatVolumeSlider(x, 72, COLUMN_WIDTH, 20, AortaConfig.get().heartbeatVolume()));
+		addRenderableWidget(new BreathingVolumeSlider(x, 104, COLUMN_WIDTH, 20, AortaConfig.get().breathingVolume()));
 		addRenderableWidget(Button.builder(enabledLabel(), button -> {
 			AortaConfig.set(AortaConfig.get().withEnabled(!AortaConfig.get().enabled()));
 			button.setMessage(enabledLabel());
-		}).bounds(x, 104, COLUMN_WIDTH, 20).build());
+		}).bounds(x, 136, COLUMN_WIDTH, 20).build());
 		addRenderableWidget(Button.builder(Component.literal("Done"), button -> onClose())
 				.bounds(x, this.height - 40, COLUMN_WIDTH, 20).build());
 	}
@@ -54,21 +56,39 @@ public final class AortaScreen extends Screen {
 		return false;
 	}
 
-	private static final class VolumeSlider extends AbstractSliderButton {
+	private static final class HeartbeatVolumeSlider extends AbstractSliderButton {
 
-		VolumeSlider(int x, int y, int width, int height, double value) {
+		HeartbeatVolumeSlider(int x, int y, int width, int height, double value) {
 			super(x, y, width, height, Component.empty(), value);
 			updateMessage();
 		}
 
 		@Override
 		protected void updateMessage() {
-			setMessage(Component.literal("Volume: " + Math.round(this.value * 100.0) + "%"));
+			setMessage(Component.literal("Heartbeat volume: " + Math.round(this.value * 100.0) + "%"));
 		}
 
 		@Override
 		protected void applyValue() {
-			AortaConfig.apply(AortaConfig.get().withVolume(this.value));
+			AortaConfig.apply(AortaConfig.get().withHeartbeatVolume(this.value));
+		}
+	}
+
+	private static final class BreathingVolumeSlider extends AbstractSliderButton {
+
+		BreathingVolumeSlider(int x, int y, int width, int height, double value) {
+			super(x, y, width, height, Component.empty(), value);
+			updateMessage();
+		}
+
+		@Override
+		protected void updateMessage() {
+			setMessage(Component.literal("Breathing volume: " + Math.round(this.value * 100.0) + "%"));
+		}
+
+		@Override
+		protected void applyValue() {
+			AortaConfig.apply(AortaConfig.get().withBreathingVolume(this.value));
 		}
 	}
 }
